@@ -1,0 +1,32 @@
+[gd_scene load_steps=2 format=3 uid="uid://ui1r1mi78wkt"]
+
+[ext_resource type="Script" path="res://note.gd" id="1_ghvbb"]
+
+[node name="Note" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("1_ghvbb")
+
+[node name="NoteBody" type="ColorRect" parent="."]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="Label" type="Label" parent="."]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 23.0
+autowrap_mode = 2
+
+[node name="TextEdit" type="TextEdit" parent="."]
+visible = false
+layout_mode = 0
+offset_right = 8.0
+offset_bottom = 8.0
+wrap_mode = 1
+
+[connection signal="focus_exited" from="TextEdit" to="." method="_on_text_edit_focus_exited"]
