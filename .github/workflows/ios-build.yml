@@ -52,7 +52,7 @@ jobs:
       - name: Build Godot project
         run: |
           mkdir -p build/iOS
-          godot --headless --export-debug "iOS" builds/iOS/Waypoint.ipa
+          godot --headless --export-debug "iOS" build/iOS/Waypoint.ipa
           
       - name: Upload app to TestFlight
         env:
