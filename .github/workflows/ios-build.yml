@@ -70,6 +70,26 @@ jobs:
           # Check certificate setup
           echo "Checking certificate in keychain:"
           security find-identity -v -p codesigning
+
+      - name: Configure Godot export settings
+        run: |
+          # Check if export_presets.cfg exists
+          if [ -f "export_presets.cfg" ]; then
+            echo "Modifying existing export_presets.cfg"
+            # Add team ID to the export settings if it's missing
+            grep -q "application/app_store_team_id=" export_presets.cfg || echo 'application/app_store_team_id="42PHPR5MC3"' >> export_presets.cfg
+            # Make sure code signing is set correctly
+            grep -q "application/code_sign_identity_debug=" export_presets.cfg || echo 'application/code_sign_identity_debug="Apple Development"' >> export_presets.cfg
+            # Make sure bundle ID is correct
+            grep -q "application/bundle_identifier=" export_presets.cfg || echo 'application/bundle_identifier="dev.allbark.waypoint"' >> export_presets.cfg
+          else
+            echo "No export_presets.cfg found. Please create one in Godot first."
+            exit 1
+          fi
+          
+          # Show the export settings
+          echo "Current export settings:"
+          cat export_presets.cfg
       
       - name: Build Godot project
         run: |
