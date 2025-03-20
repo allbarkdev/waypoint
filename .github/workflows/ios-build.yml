@@ -49,56 +49,28 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
 
-      - name: Debug provisioning profile setup
-        env:
-          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          
-          # Test base64 decoding
-          echo "Testing base64 decoding..."
-          echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
-          
-          # Check file size to see if it decoded properly
-          echo "Checking provisioning profile size:"
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
-          
-          # Check if the file is a valid provisioning profile
-          echo "Checking if file is a valid provisioning profile:"
-          security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision | grep -A2 -B2 "dev.allbark.waypoint" || echo "Bundle ID not found in profile"
-          
-          # Check certificate setup
-          echo "Checking certificate in keychain:"
-          security find-identity -v -p codesigning
-
       - name: Configure Godot export settings
         run: |
-          # Check if export_presets.cfg exists
+          # Check if export_presets.cfg exists and update if needed
           if [ -f "export_presets.cfg" ]; then
-            echo "Modifying existing export_presets.cfg"
-            # Add team ID to the export settings if it's missing
-            grep -q "application/app_store_team_id=" export_presets.cfg || echo 'application/app_store_team_id="42PHPR5MC3"' >> export_presets.cfg
-            # Make sure code signing is set correctly
-            grep -q "application/code_sign_identity_debug=" export_presets.cfg || echo 'application/code_sign_identity_debug="Apple Development"' >> export_presets.cfg
-            # Make sure bundle ID is correct
-            grep -q "application/bundle_identifier=" export_presets.cfg || echo 'application/bundle_identifier="dev.allbark.waypoint"' >> export_presets.cfg
+            echo "Verifying export settings..."
+            # Make sure code signing is set correctly if not already
+            grep -q "application/code_sign_identity_debug=\"\"" export_presets.cfg && sed -i '' 's/application\/code_sign_identity_debug=""/application\/code_sign_identity_debug="Apple Development"/' export_presets.cfg
+            # Set signature if empty
+            grep -q "application/signature=\"\"" export_presets.cfg && sed -i '' 's/application\/signature=""/application\/signature="${TEAM_IDENTIFIER}"/' export_presets.cfg
           else
             echo "No export_presets.cfg found. Please create one in Godot first."
             exit 1
           fi
-          
-          # Show the export settings
-          echo "Current export settings:"
-          cat export_presets.cfg
       
       - name: Build Godot project
         run: |
-          mkdir -p build/iOS
-          godot --headless --export-debug "iOS" build/iOS/Waypoint.ipa
+          mkdir -p builds/ios
+          godot --headless --export-debug "iOS" builds/ios/Waypoint.ipa
           
       - name: Upload app to TestFlight
         env:
           APPLE_ID_USERNAME: ${{ secrets.APPLE_ID_USERNAME }}
           APPLE_ID_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_APP_SPECIFIC_PASSWORD }}
         run: |
-          xcrun altool --upload-app -f build/iOS/Waypoint.ipa -t ios -u "$APPLE_ID_USERNAME" -p "$APPLE_ID_APP_SPECIFIC_PASSWORD"
+          xcrun altool --upload-app -f builds/ios/Waypoint.ipa -t ios -u "$APPLE_ID_USERNAME" -p "$APPLE_ID_APP_SPECIFIC_PASSWORD"
