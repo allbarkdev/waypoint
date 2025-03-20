@@ -48,20 +48,6 @@ jobs:
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
-
-      - name: Configure Godot export settings
-        run: |
-          # Check if export_presets.cfg exists and update if needed
-          if [ -f "export_presets.cfg" ]; then
-            echo "Verifying export settings..."
-            # Make sure code signing is set correctly if not already
-            grep -q "application/code_sign_identity_debug=\"\"" export_presets.cfg && sed -i '' 's/application\/code_sign_identity_debug=""/application\/code_sign_identity_debug="Apple Development"/' export_presets.cfg
-            # Set signature if empty
-            grep -q "application/signature=\"\"" export_presets.cfg && sed -i '' 's/application\/signature=""/application\/signature="${TEAM_IDENTIFIER}"/' export_presets.cfg
-          else
-            echo "No export_presets.cfg found. Please create one in Godot first."
-            exit 1
-          fi
       
       - name: Build Godot project
         run: |
