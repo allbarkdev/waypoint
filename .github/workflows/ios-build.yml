@@ -24,42 +24,88 @@ jobs:
           wget https://github.com/godotengine/godot/releases/download/4.4-stable/Godot_v4.4-stable_export_templates.tpz
           unzip Godot_v4.4-stable_export_templates.tpz
           mv templates/* "/Users/runner/Library/Application Support/Godot/export_templates/4.4.stable/"
-          
-      - name: Set up certificates
+      
+      - name: Setup keychain
+        env:
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+      
+      - name: Install the Apple certificate
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          # Create keychain
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          
-          # Import certificate
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/build_certificate.p12
           security import $RUNNER_TEMP/build_certificate.p12 -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
       
-      - name: Setup provisioning profiles
+      - name: Setup API key for App Store Connect
         env:
-          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
-          # Set the provisioning profile for the Xcode project
-          mkdir -p ~/Library/Developer/Xcode/DerivedData
-          echo "PROVISIONING_PROFILE_SPECIFIER = \"YourProvisioningProfileName\";" >> ~/Library/Developer/Xcode/DerivedData/YourProjectName.xcconfig
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_$APP_STORE_CONNECT_API_KEY_ID.p8
+          echo "API_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_$APP_STORE_CONNECT_API_KEY_ID.p8" >> $GITHUB_ENV
+          echo "API_KEY_ID=$APP_STORE_CONNECT_API_KEY_ID" >> $GITHUB_ENV
+          echo "API_ISSUER_ID=$APP_STORE_CONNECT_ISSUER_ID" >> $GITHUB_ENV
       
-      - name: Build Godot project
+      - name: Export Godot project to Xcode
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
         run: |
           mkdir -p builds/ios
-          godot --headless --export-debug "iOS" builds/ios/Waypoint.ipa
-          
-      - name: Upload app to TestFlight
+          # Use iPhone Development for the code signing identity in Godot
+          godot --headless --export-debug "iOS" builds/ios/Waypoint.xcodeproj
+      
+      - name: Build and archive with automatic signing
         env:
-          APPLE_ID_USERNAME: ${{ secrets.APPLE_ID_USERNAME }}
-          APPLE_ID_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_APP_SPECIFIC_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcrun altool --upload-app -f builds/ios/Waypoint.ipa -t ios -u "$APPLE_ID_USERNAME" -p "$APPLE_ID_APP_SPECIFIC_PASSWORD"
+          cd builds/ios
+          
+          # Configure for automatic signing
+          xcodebuild -project Waypoint.xcodeproj -scheme Waypoint -configuration Release \
+            -allowProvisioningUpdates \
+            -allowProvisioningDeviceRegistration \
+            DEVELOPMENT_TEAM=$TEAM_ID \
+            CODE_SIGN_STYLE=Automatic \
+            clean archive -archivePath ./Waypoint.xcarchive
+          
+          # Export IPA using automatic signing
+          cat > exportOptions.plist << EOL
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>$TEAM_ID</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          EOL
+          
+          xcodebuild -exportArchive -archivePath ./Waypoint.xcarchive -exportPath ./IPA -exportOptionsPlist exportOptions.plist
+      
+      - name: Upload to TestFlight
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: |
+          xcrun altool --upload-app -f builds/ios/IPA/Waypoint.ipa \
+            --type ios \
+            --apiKey $API_KEY_ID \
+            --apiIssuer $API_ISSUER_ID \
+            --api-key-path $API_KEY_PATH
